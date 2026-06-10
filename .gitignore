@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+dashboard/node_modules/
+
+# Build output
+dist/
+dashboard/.next/
+dashboard/out/
+
+# Environment — never commit secrets
+.env
+.env.local
+.env.*.local
+# DO commit the example
+!.env.example
+
+# Logs & runtime data
+logs/*.db
+logs/receipts/
+logs/bundles/
+*.log
+
+# SQLite WAL files
+*.db-shm
+*.db-wal
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/settings.json

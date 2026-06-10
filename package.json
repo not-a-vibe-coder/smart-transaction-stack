@@ -1,0 +1,40 @@
+{
+  "name": "solana-pay-dispatcher",
+  "version": "0.1.0",
+  "description": "Guaranteed stablecoin payment dispatcher built on Solana using Jito bundles, Yellowstone gRPC streaming, and an AI failure recovery agent.",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "ts-node src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "lint": "eslint \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@google/generative-ai": "^0.24.1",
+    "@solana/spl-token": "latest",
+    "@solana/web3.js": "latest",
+    "@triton-one/yellowstone-grpc": "latest",
+    "better-sqlite3": "latest",
+    "bs58": "latest",
+    "dotenv": "latest",
+    "eventemitter3": "latest",
+    "express": "latest",
+    "ws": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "latest",
+    "@types/express": "latest",
+    "@types/node": "latest",
+    "@types/ws": "latest",
+    "@typescript-eslint/eslint-plugin": "latest",
+    "@typescript-eslint/parser": "latest",
+    "eslint": "latest",
+    "ts-node": "latest",
+    "typescript": "latest"
+  },
+  "optionalDependencies": {
+    "@triton-one/yellowstone-grpc-napi-win32-x64-msvc": "npm:null@*"
+  }
+}
