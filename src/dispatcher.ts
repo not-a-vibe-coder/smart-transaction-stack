@@ -339,7 +339,10 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
           }
           resolve();
         } else if (status === PaymentStatus.FAILED) {
-          // Use actual error from lifecycle event meta, not a generic message
+          // Immediately unsubscribe to prevent duplicate signature failure events from the same bundle racing
+          tracker.off("statusChange", onStatus);
+          confirmationListener.unwatchPayment(payment.id);
+
           const actualError = event.meta?.error
             ? new Error(String(event.meta.error))
             : new Error(`Payment ${payment.id} failed — no error detail`);
@@ -356,7 +359,6 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
             .catch(() => "abandoned" as const);
 
           if (result === "abandoned") {
-            tracker.off("statusChange", onStatus);
             this.emit(
               "paymentFailed",
               payment.id,
@@ -364,10 +366,7 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
             );
             resolve();
           } else {
-            // Agent recommended retry! Unsubscribe the old status listener and recursive await
-            tracker.off("statusChange", onStatus);
-            confirmationListener.unwatchPayment(payment.id);
-
+            // Agent recommended retry!
             const allBundles = this.config.store.getBundleSubmissions(payment.id);
             const lastBundle = allBundles[allBundles.length - 1];
             const nextSig = lastBundle?.signatures[0] ?? initialSig;
