@@ -21,6 +21,16 @@ export class WsServer {
     this.port = port;
     this.app = express();
     this.app.use(express.json());
+    this.app.use((req, res, next) => {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type");
+      if (req.method === "OPTIONS") {
+        res.sendStatus(200);
+      } else {
+        next();
+      }
+    });
     console.log(`[ws] 🌐 WsServer initialized on port ${port}`);
   }
 
@@ -82,6 +92,22 @@ export class WsServer {
       this.broadcastRetryNotification(paymentId, attempt, diagnosis, succeeded);
     });
 
+    // Wire slot updates
+    this.dispatcher.config.slotSubscriber.on("slot", (slotUpdate) => {
+      this.broadcast("slot:update", { slot: slotUpdate.slot, timestamp: Date.now() });
+    });
+
+    // Wire network health updates
+    this.dispatcher.config.healthMonitor.on("healthUpdate", (health) => {
+      this.broadcast("network:health", {
+        status: health.status,
+        slotRate: health.slotRate,
+        processedToConfirmedDeltaMs: health.processedToConfirmedDeltaMs,
+        currentSlot: health.currentSlot,
+        timestamp: Date.now(),
+      });
+    });
+
     // REST endpoints
     this.app.get("/health", (_req, res) => {
       res.json({ status: "ok", clients: this.clients.size });
@@ -94,10 +120,11 @@ export class WsServer {
 
     this.app.post("/dispatch", async (req, res) => {
       try {
-        const { recipient, amount, memo } = req.body as {
+        const { recipient, amount, memo, tokenMint } = req.body as {
           recipient: string;
           amount: number;
           memo?: string;
+          tokenMint?: string;
         };
 
         if (!recipient || !amount) {
@@ -109,6 +136,7 @@ export class WsServer {
           recipient,
           amount: Math.floor(amount * 1_000_000), // convert USDC to lamports
           memo,
+          tokenMint,
         });
 
         res.json({ success: true, paymentId: payment.id });

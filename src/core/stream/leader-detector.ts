@@ -145,6 +145,16 @@ export class LeaderDetector extends EventEmitter<LeaderDetectorEvents> {
   }
 
   getNextJitoWindow(): LeaderWindow | null {
+    if (process.env.SOLANA_NETWORK !== "mainnet-beta") {
+      const latestSlot = this.slotSubscriber.getLatestSlot()?.slot ?? 0;
+      return {
+        validatorPubkey: "J1to1yVEQuPkpCm3Y8vMkQq5k8kcuPFPxTGHNVxiqfHp",
+        isJitoValidator: true,
+        slotStart: latestSlot + 1,
+        slotEnd: latestSlot + 4,
+        slotsUntilLeader: 1,
+      };
+    }
     return this.lastJitoWindow;
   }
 }

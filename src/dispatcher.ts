@@ -64,7 +64,7 @@ interface DispatcherEvents {
 }
 
 export class PayDispatcher extends EventEmitter<DispatcherEvents> {
-  private readonly config: DispatcherConfig;
+  public readonly config: DispatcherConfig;
 
   constructor(config: DispatcherConfig) {
     super();
@@ -187,7 +187,7 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
     return payment;
   }
 
-  private async dispatch(payment: PaymentRequest): Promise<void> {
+  private async dispatch(payment: PaymentRequest, attempt = 1, previousTip?: number): Promise<void> {
     const {
       tipCalculator,
       faultInjector,
@@ -195,19 +195,18 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
       bundleSubmitter,
       tracker,
       confirmationListener,
-      receiptGenerator,
       retryExecutor,
       rpcClient,
       tipFetcher,
     } = this.config;
 
-    let attempt = 1;
-    let tipLamports = tipCalculator.calculateTip(payment.amountLamports, attempt);
+    let tipLamports = previousTip ?? tipCalculator.calculateTip(payment.amountLamports, attempt);
+    let currentBundleId = "none";
+    let injectedTip = tipLamports;
 
     try {
       // Apply fault injection if configured
       let blockhash = await rpcClient.getLatestBlockhash();
-      let injectedTip = tipLamports;
 
       if (faultInjector.shouldInjectForPayment(payment)) {
         const faultType = faultInjector.getFaultType();
@@ -223,6 +222,7 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
         injectedTip,
         blockhash
       );
+      currentBundleId = bundleId;
 
       const currentSlot = await rpcClient.getSlot().catch(() => 0);
       const tipAccount = tipFetcher.getRandomTipAccount();
@@ -245,97 +245,165 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
         currentSlot
       );
 
-      // Listen for status changes on this payment
-      await new Promise<void>((resolve) => {
-        const onStatus = async (
-          paymentId: string,
-          status: PaymentStatus,
-          event: LifecycleEvent
-        ) => {
-          if (paymentId !== payment.id) return;
+      if (process.env.SOLANA_NETWORK !== "mainnet-beta") {
+        console.log(`[dispatcher] 📡 Direct RPC broadcast fallback triggered for payment ${payment.id.slice(0, 8)}...`);
+        for (const tx of transactions) {
+          rpcClient.getConnection().sendRawTransaction(tx.serialize(), {
+            skipPreflight: true,
+            maxRetries: 3,
+          }).catch((err) => {
+            console.warn(`[dispatcher] ⚠️ Direct broadcast error: ${err.message}`);
+          });
+        }
+      }
 
-          if (status === PaymentStatus.FINALIZED) {
-            tracker.off("statusChange", onStatus);
-            confirmationListener.unwatchPayment(payment.id);
+      await this.awaitConfirmation(payment, attempt, injectedTip, submission.signatures[0]);
 
-            // Use the last submitted bundle's first signature as the final sig
-            const allBundles = this.config.store.getBundleSubmissions(payment.id);
-            const lastBundle = allBundles[allBundles.length - 1];
-            const finalSig = lastBundle?.signatures[0] ?? submission.signatures[0] ?? "unknown";
-            const receipt = receiptGenerator.generateReceipt(
-              payment,
-              finalSig
-            );
-            if (receipt) {
-              receiptGenerator.printReceiptSummary(receipt);
-              this.emit("paymentFinalized", receipt);
-            }
-            resolve();
-          } else if (status === PaymentStatus.FAILED) {
-            // Use actual error from lifecycle event meta, not a generic message
-            const actualError = event.meta?.error
-              ? new Error(String(event.meta.error))
-              : new Error(`Payment ${payment.id} failed — no error detail`);
-
-            // Try agent-driven retry
-            const result = await retryExecutor
-              .handleFailure(
-                actualError,
-                payment,
-                event.bundleId,
-                injectedTip,
-                attempt
-              )
-              .catch(() => "abandoned" as const);
-
-            if (result === "abandoned") {
-              tracker.off("statusChange", onStatus);
-              this.emit(
-                "paymentFailed",
-                payment.id,
-                "Max retries exceeded or non-retryable failure"
-              );
-              resolve();
-            } else {
-              attempt++;
-              injectedTip = tipCalculator.calculateTip(
-                payment.amountLamports,
-                attempt
-              );
-              this.emit("retryNotification", payment.id, attempt, "Retrying...", true);
-            }
-          } else if (status === PaymentStatus.ABANDONED) {
-            tracker.off("statusChange", onStatus);
-            this.emit("paymentFailed", payment.id, "Payment abandoned");
-            resolve();
-          }
-        };
-
-        tracker.on("statusChange", onStatus);
-
-        // Timeout after 5 minutes
-        setTimeout(() => {
-          tracker.off("statusChange", onStatus);
-          console.warn(
-            `[dispatcher] ⚠️ Payment ${payment.id} timed out after 5 minutes`
-          );
-          this.emit("paymentFailed", payment.id, "Timeout");
-          resolve();
-        }, 5 * 60 * 1000);
-      });
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.error(`[dispatcher] ❌ Fatal dispatch error: ${msg}`);
-      const slot = await rpcClient.getSlot().catch(() => 0);
-      tracker.transition(
-        payment.id,
-        "unknown",
-        PaymentStatus.FAILED,
-        slot,
-        { error: msg }
-      );
-      this.emit("paymentFailed", payment.id, msg);
+
+      // Consult agent for retry
+      const result = await retryExecutor
+        .handleFailure(
+          error,
+          payment,
+          currentBundleId,
+          injectedTip,
+          attempt
+        )
+        .catch(() => "abandoned" as const);
+
+      if (result === "abandoned") {
+        this.emit("paymentFailed", payment.id, msg);
+      } else {
+        console.log(`[dispatcher] 🔁 Agent recommended retry. Rescheduling dispatch...`);
+        // The retryExecutor already rebuilt and submitted the transaction.
+        // It transitioned the status to SUBMITTED.
+        // We just need to start the confirmation listener for this payment and wait!
+        const allBundles = this.config.store.getBundleSubmissions(payment.id);
+        const lastBundle = allBundles[allBundles.length - 1];
+        const nextSig = lastBundle?.signatures[0] ?? "unknown";
+
+        // Watch the signatures of the new bundle
+        if (lastBundle) {
+          confirmationListener.watchBundle(lastBundle);
+        }
+
+        setImmediate(() => {
+          this.awaitConfirmation(payment, attempt + 1, injectedTip, nextSig)
+            .catch((err: Error) => {
+              console.error(`[dispatcher] ❌ Error in retry confirmation: ${err.message}`);
+            });
+        });
+      }
     }
+  }
+
+  private async awaitConfirmation(
+    payment: PaymentRequest,
+    attempt: number,
+    injectedTip: number,
+    initialSig: string
+  ): Promise<void> {
+    const {
+      tracker,
+      confirmationListener,
+      receiptGenerator,
+      retryExecutor,
+    } = this.config;
+
+    return new Promise<void>((resolve) => {
+      const onStatus = async (
+        paymentId: string,
+        status: PaymentStatus,
+        event: LifecycleEvent
+      ) => {
+        if (paymentId !== payment.id) return;
+
+        if (status === PaymentStatus.FINALIZED) {
+          tracker.off("statusChange", onStatus);
+          confirmationListener.unwatchPayment(payment.id);
+
+          // Use the last submitted bundle's first signature as the final sig
+          const allBundles = this.config.store.getBundleSubmissions(payment.id);
+          const lastBundle = allBundles[allBundles.length - 1];
+          const finalSig = lastBundle?.signatures[0] ?? initialSig;
+          const receipt = receiptGenerator.generateReceipt(
+            payment,
+            finalSig
+          );
+          if (receipt) {
+            receiptGenerator.printReceiptSummary(receipt);
+            this.emit("paymentFinalized", receipt);
+          }
+          resolve();
+        } else if (status === PaymentStatus.FAILED) {
+          // Use actual error from lifecycle event meta, not a generic message
+          const actualError = event.meta?.error
+            ? new Error(String(event.meta.error))
+            : new Error(`Payment ${payment.id} failed — no error detail`);
+
+          // Try agent-driven retry
+          const result = await retryExecutor
+            .handleFailure(
+              actualError,
+              payment,
+              event.bundleId,
+              injectedTip,
+              attempt
+            )
+            .catch(() => "abandoned" as const);
+
+          if (result === "abandoned") {
+            tracker.off("statusChange", onStatus);
+            this.emit(
+              "paymentFailed",
+              payment.id,
+              "Max retries exceeded or non-retryable failure"
+            );
+            resolve();
+          } else {
+            // Agent recommended retry! Unsubscribe the old status listener and recursive await
+            tracker.off("statusChange", onStatus);
+            confirmationListener.unwatchPayment(payment.id);
+
+            const allBundles = this.config.store.getBundleSubmissions(payment.id);
+            const lastBundle = allBundles[allBundles.length - 1];
+            const nextSig = lastBundle?.signatures[0] ?? initialSig;
+
+            // Watch the signatures of the new bundle
+            if (lastBundle) {
+              confirmationListener.watchBundle(lastBundle);
+            }
+
+            setImmediate(() => {
+              this.awaitConfirmation(payment, attempt + 1, injectedTip, nextSig)
+                .catch((err: Error) => {
+                  console.error(`[dispatcher] ❌ Error in retry confirmation: ${err.message}`);
+                });
+            });
+            resolve();
+          }
+        } else if (status === PaymentStatus.ABANDONED) {
+          tracker.off("statusChange", onStatus);
+          this.emit("paymentFailed", payment.id, "Payment abandoned");
+          resolve();
+        }
+      };
+
+      tracker.on("statusChange", onStatus);
+
+      // Timeout after 5 minutes
+      setTimeout(() => {
+        tracker.off("statusChange", onStatus);
+        console.warn(
+          `[dispatcher] ⚠️ Payment ${payment.id} timed out after 5 minutes`
+        );
+        this.emit("paymentFailed", payment.id, "Timeout");
+        resolve();
+      }, 5 * 60 * 1000);
+    });
   }
 
   getStatus(paymentId: string): PaymentStatus | null {

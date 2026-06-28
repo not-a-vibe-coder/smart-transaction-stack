@@ -1,26 +1,31 @@
-// Phase 18 — Stream-based confirmation listener.
-// CRITICAL: Uses Geyser stream for confirmation — NOT RPC polling alone.
 import { PaymentStatus } from "../../types";
 import type { BundleSubmission } from "../../types";
 import type { LifecycleTracker } from "./tracker";
 import type { GeyserClient, GeyserStreamLike } from "../stream/geyser";
 import type { SubscribeUpdate } from "@triton-one/yellowstone-grpc";
+import { Connection } from "@solana/web3.js";
 
 interface WatchEntry {
   paymentId: string;
   bundleId: string;
   addedAt: number;
+  lastValidBlockHeight: number;
 }
 
 export class ConfirmationListener {
   private readonly geyserClient: GeyserClient;
   private readonly tracker: LifecycleTracker;
+  private readonly connection: Connection;
   private watchedSignatures = new Map<string, WatchEntry>();
   private stream: GeyserStreamLike | null = null;
+  private pollInterval: NodeJS.Timeout | null = null;
+  private pollCount = 0;
+  private cachedBlockHeight = 0;
 
-  constructor(geyserClient: GeyserClient, tracker: LifecycleTracker) {
+  constructor(geyserClient: GeyserClient, tracker: LifecycleTracker, connection: Connection) {
     this.geyserClient = geyserClient;
     this.tracker = tracker;
+    this.connection = connection;
     console.log("[confirm] 👂 ConfirmationListener initialized");
   }
 
@@ -32,6 +37,19 @@ export class ConfirmationListener {
   private async openStream(): Promise<void> {
     try {
       const client = this.geyserClient.getClient();
+
+      if (client.constructor.name === "NoopGeyserClient") {
+        console.log("[confirm] 👂 Yellowstone unavailable; starting RPC signature polling fallback");
+        this.pollInterval = setInterval(async () => {
+          try {
+            await this.pollWatchedSignatures();
+          } catch (err) {
+            // ignore
+          }
+        }, 4000) as any;
+        return;
+      }
+
       const stream = await client.subscribe();
       this.stream = stream;
 
@@ -151,6 +169,10 @@ export class ConfirmationListener {
   }
 
   stop(): void {
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
     if (this.stream) {
       try {
         this.stream.destroy();
@@ -162,12 +184,72 @@ export class ConfirmationListener {
     console.log("[confirm] ⏹️ Confirmation stream stopped");
   }
 
+  private async pollWatchedSignatures(): Promise<void> {
+    if (this.watchedSignatures.size === 0) return;
+
+    // Check block height expiration
+    try {
+      this.pollCount++;
+      if (this.pollCount % 10 === 1 || this.cachedBlockHeight === 0) {
+        this.cachedBlockHeight = await this.connection.getBlockHeight().catch(() => this.cachedBlockHeight);
+      }
+      const currentBlockHeight = this.cachedBlockHeight;
+
+      if (currentBlockHeight > 0) {
+        for (const [sig, entry] of this.watchedSignatures.entries()) {
+          if (currentBlockHeight > entry.lastValidBlockHeight) {
+            console.log(`[confirm] ⚠️ Watcher detected expired blockhash for signature ${sig.slice(0, 8)}... (current height: ${currentBlockHeight}, last valid: ${entry.lastValidBlockHeight})`);
+            this.tracker.transition(entry.paymentId, entry.bundleId, PaymentStatus.FAILED, entry.lastValidBlockHeight, {
+              error: "blockhash expired",
+              confirmationError: "blockhash expired",
+            });
+            this.watchedSignatures.delete(sig);
+          }
+        }
+      }
+    } catch (err) {
+      // ignore
+    }
+
+    if (this.watchedSignatures.size === 0) return;
+
+    const sigs = Array.from(this.watchedSignatures.keys());
+    const statuses = await this.connection.getSignatureStatuses(sigs);
+    
+    if (!statuses || !statuses.value) return;
+
+    for (let i = 0; i < sigs.length; i++) {
+      const sig = sigs[i];
+      const status = statuses.value[i];
+      if (!status) continue;
+
+      const entry = this.watchedSignatures.get(sig);
+      if (!entry) continue;
+
+      const { paymentId, bundleId } = entry;
+      const slot = status.slot;
+
+      if (status.err) {
+        this.tracker.transition(paymentId, bundleId, PaymentStatus.FAILED, slot, {
+          confirmationError: String(status.err),
+        });
+        this.watchedSignatures.delete(sig);
+      } else if (status.confirmationStatus === "confirmed") {
+        this.tracker.transition(paymentId, bundleId, PaymentStatus.CONFIRMED, slot);
+      } else if (status.confirmationStatus === "finalized") {
+        this.tracker.transition(paymentId, bundleId, PaymentStatus.FINALIZED, slot);
+        this.watchedSignatures.delete(sig);
+      }
+    }
+  }
+
   watchBundle(submission: BundleSubmission): void {
     for (const sig of submission.signatures) {
       this.watchedSignatures.set(sig, {
         paymentId: submission.paymentId,
         bundleId: submission.bundleId,
         addedAt: Date.now(),
+        lastValidBlockHeight: submission.lastValidBlockHeight,
       });
     }
 

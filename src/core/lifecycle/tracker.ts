@@ -15,13 +15,13 @@ interface TrackerEvents {
 
 // Legal state machine transitions
 const ALLOWED_TRANSITIONS: Record<PaymentStatus, PaymentStatus[]> = {
-  [PaymentStatus.QUEUED]: [PaymentStatus.SUBMITTED],
-  [PaymentStatus.SUBMITTED]: [PaymentStatus.PROCESSED, PaymentStatus.FAILED],
-  [PaymentStatus.PROCESSED]: [PaymentStatus.CONFIRMED, PaymentStatus.FAILED],
-  [PaymentStatus.CONFIRMED]: [PaymentStatus.FINALIZED, PaymentStatus.FAILED],
-  [PaymentStatus.FINALIZED]: [],
-  [PaymentStatus.FAILED]: [PaymentStatus.SUBMITTED, PaymentStatus.ABANDONED],
-  [PaymentStatus.ABANDONED]: [],
+  [PaymentStatus.QUEUED]: [PaymentStatus.QUEUED, PaymentStatus.SUBMITTED, PaymentStatus.FAILED],
+  [PaymentStatus.SUBMITTED]: [PaymentStatus.SUBMITTED, PaymentStatus.PROCESSED, PaymentStatus.CONFIRMED, PaymentStatus.FINALIZED, PaymentStatus.FAILED],
+  [PaymentStatus.PROCESSED]: [PaymentStatus.PROCESSED, PaymentStatus.CONFIRMED, PaymentStatus.FINALIZED, PaymentStatus.FAILED],
+  [PaymentStatus.CONFIRMED]: [PaymentStatus.CONFIRMED, PaymentStatus.FINALIZED, PaymentStatus.FAILED],
+  [PaymentStatus.FINALIZED]: [PaymentStatus.FINALIZED],
+  [PaymentStatus.FAILED]: [PaymentStatus.FAILED, PaymentStatus.SUBMITTED, PaymentStatus.ABANDONED],
+  [PaymentStatus.ABANDONED]: [PaymentStatus.ABANDONED],
 };
 
 export class LifecycleTracker extends EventEmitter<TrackerEvents> {

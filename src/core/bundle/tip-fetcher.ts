@@ -31,10 +31,16 @@ export class TipFetcher {
 
   private async fetchTipAccounts(): Promise<void> {
     try {
-      const url = `${this.blockEngineUrl}/api/v1/bundles/getTipAccounts`;
+      const url = `${this.blockEngineUrl}/api/v1/bundles`;
       const res = await fetch(url, {
-        method: "GET",
+        method: "POST",
         headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "getTipAccounts",
+          params: [],
+        }),
         signal: AbortSignal.timeout(10_000),
       });
 
@@ -42,20 +48,11 @@ export class TipFetcher {
         throw new Error(`HTTP ${res.status}`);
       }
 
-      const body = (await res.json()) as unknown;
+      const body = (await res.json()) as any;
       let accounts: string[] = [];
 
-      if (Array.isArray(body)) {
-        accounts = body.filter((a): a is string => typeof a === "string");
-      } else if (
-        body !== null &&
-        typeof body === "object" &&
-        "result" in body &&
-        Array.isArray((body as { result: unknown }).result)
-      ) {
-        accounts = (
-          (body as { result: unknown[] }).result
-        ).filter((a): a is string => typeof a === "string");
+      if (body && typeof body === "object" && Array.isArray(body.result)) {
+        accounts = body.result.filter((a: any): a is string => typeof a === "string");
       }
 
       if (accounts.length > 0) {

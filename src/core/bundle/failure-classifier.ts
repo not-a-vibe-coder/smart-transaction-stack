@@ -59,7 +59,9 @@ export class FailureClassifier {
       lower.includes("bundle") ||
       lower.includes("dropped") ||
       lower.includes("no leader") ||
-      lower.includes("no_leader_window")
+      lower.includes("no_leader_window") ||
+      lower.includes("leader window") ||
+      lower.includes("jito leader")
     ) {
       code = FailureCode.BUNDLE_DROPPED;
       remediationHint =

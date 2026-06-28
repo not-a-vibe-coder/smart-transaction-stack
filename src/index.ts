@@ -30,7 +30,7 @@ const start = async (): Promise<void> => {
   const rpc = new SolanaRpcClient(connection);
   const store = createStore(env.DB_PATH);
   const geyser = createGeyserClient();
-  const slotSubscriber = new SlotSubscriber(geyser);
+  const slotSubscriber = new SlotSubscriber(geyser, connection);
   const leaderDetector = new LeaderDetector(rpc, slotSubscriber);
   const reconnectionManager = new ReconnectionManager(geyser, slotSubscriber);
   const healthMonitor = new NetworkHealthMonitor(slotSubscriber);
@@ -50,7 +50,7 @@ const start = async (): Promise<void> => {
   );
   const failureClassifier = new FailureClassifier();
   const tracker = new LifecycleTracker(store);
-  const confirmationListener = new ConfirmationListener(geyser, tracker);
+  const confirmationListener = new ConfirmationListener(geyser, tracker, connection);
   const receiptGenerator = new ReceiptGenerator(store);
   const agentClient = new AgentClient(
     env.ANTHROPIC_API_KEY || env.GEMINI_API_KEY || "",

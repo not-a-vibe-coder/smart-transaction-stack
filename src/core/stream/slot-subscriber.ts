@@ -1,11 +1,8 @@
-// Phase 7 — Live slot subscription over the Yellowstone gRPC stream.
-//
-// Emits typed SlotUpdate events to the rest of the system. Shared domain types
-// come from src/types/index.ts (the single source of truth).
 import { EventEmitter } from "eventemitter3";
 import type { SubscribeUpdate } from "@triton-one/yellowstone-grpc";
 import { GeyserClient, GeyserError, type GeyserStreamLike } from "./geyser";
 import type { SlotUpdate } from "../../types";
+import { Connection } from "@solana/web3.js";
 
 /**
  * Maps Yellowstone slot-status / commitment levels (numeric) to our commitment
@@ -31,22 +28,48 @@ export interface SlotSubscriberEvents {
  */
 export class SlotSubscriber extends EventEmitter<SlotSubscriberEvents> {
   private readonly geyserClient: GeyserClient;
+  private readonly connection: Connection;
   private recentSlots: SlotUpdate[] = [];
   private running = false;
   private stream: GeyserStreamLike | null = null;
+  private pollInterval: NodeJS.Timeout | null = null;
+  private lastSlots = {
+    processed: 0,
+    confirmed: 0,
+    finalized: 0
+  };
 
-  constructor(geyserClient: GeyserClient) {
+  constructor(geyserClient: GeyserClient, connection: Connection) {
     super();
     this.geyserClient = geyserClient;
+    this.connection = connection;
     console.log("[slot] 🎰 SlotSubscriber initialized");
   }
 
-  /**
-   * Open the slot subscription and begin emitting "slot" events. Stream and
-   * handler errors are surfaced via the "error" event, never thrown.
-   */
   async subscribe(): Promise<void> {
     const client = this.geyserClient.getClient();
+
+    this.running = true;
+
+    if (client.constructor.name === "NoopGeyserClient") {
+      console.log("[slot] 🎰 Yellowstone unavailable; starting RPC slot polling fallback");
+      this.pollInterval = setInterval(async () => {
+        try {
+          if (!this.running) return;
+          const processed = await this.connection.getSlot("processed");
+          const confirmed = await this.connection.getSlot("confirmed");
+          const finalized = await this.connection.getSlot("finalized");
+
+          this.handlePollSlot(processed, "processed");
+          this.handlePollSlot(confirmed, "confirmed");
+          this.handlePollSlot(finalized, "finalized");
+        } catch (err) {
+          // ignore rate limits / network errors
+        }
+      }, 2000) as any;
+      return;
+    }
+
     const stream = await client.subscribe();
     this.stream = stream;
 
@@ -61,8 +84,6 @@ export class SlotSubscriber extends EventEmitter<SlotSubscriberEvents> {
       accountsDataSlice: []
     };
     stream.write(request);
-
-    this.running = true;
 
     stream.on("data", (update: SubscribeUpdate) => {
       // Never throw inside the message handler — emit "error" instead so a
@@ -126,11 +147,32 @@ export class SlotSubscriber extends EventEmitter<SlotSubscriberEvents> {
   /** Stop the subscription and tear down the stream. */
   async unsubscribe(): Promise<void> {
     this.running = false;
+    if (this.pollInterval) {
+      clearInterval(this.pollInterval);
+      this.pollInterval = null;
+    }
     if (this.stream) {
       this.stream.destroy();
       this.stream = null;
     }
     console.log("[slot] 🛑 Slot subscription stopped");
+  }
+
+  private handlePollSlot(slot: number, commitment: SlotUpdate["commitment"]): void {
+    if (slot <= this.lastSlots[commitment]) return;
+    this.lastSlots[commitment] = slot;
+
+    const slotUpdate: SlotUpdate = {
+      slot,
+      commitment,
+      timestamp: Date.now()
+    };
+    this.pushRecent(slotUpdate);
+    this.emit("slot", slotUpdate);
+
+    if (commitment === "confirmed") {
+      console.log(`[slot] 🎰 Slot ${slot} confirmed (RPC Polling)`);
+    }
   }
 
   /** Most recent slots, newest first (a copy — safe to mutate). */

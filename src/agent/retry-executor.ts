@@ -192,6 +192,18 @@ export class RetryExecutor {
       newSlot
     );
 
+    if (process.env.SOLANA_NETWORK !== "mainnet-beta") {
+      console.log(`[retry] 📡 Direct RPC broadcast fallback triggered for payment ${payment.id.slice(0, 8)}...`);
+      for (const tx of transactions) {
+        this.rpcClient.getConnection().sendRawTransaction(tx.serialize(), {
+          skipPreflight: true,
+          maxRetries: 3,
+        }).catch((err) => {
+          console.warn(`[retry] ⚠️ Direct broadcast error: ${err.message}`);
+        });
+      }
+    }
+
     console.log(`[retry] ✅ Retry submitted: attempt ${attempt + 1}`);
     return "retried";
   }

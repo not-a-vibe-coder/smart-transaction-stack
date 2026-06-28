@@ -2,6 +2,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import type { AgentContext, AgentDecision } from "../types";
+import { AgentAction } from "../types";
 import { buildPrompt, SYSTEM_PROMPT } from "./prompts";
 
 type AgentProvider = "anthropic" | "gemini";
@@ -65,36 +66,93 @@ export class AgentClient {
     const userPrompt = buildPrompt(context);
 
     let text: string;
-    if (this.provider === "gemini") {
-      const model = this.gemini!.getGenerativeModel({ model: "gemini-2.0-flash" });
-      const result = await model.generateContent([SYSTEM_PROMPT, userPrompt].join("\n\n"));
-      text = result.response.text();
-    } else {
-      const response = await this.anthropic!.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 1000,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: "user", content: userPrompt }],
-      });
+    try {
+      if (this.provider === "gemini") {
+        const model = this.gemini!.getGenerativeModel({ model: "gemini-2.0-flash" });
+        const result = await Promise.race([
+          model.generateContent([SYSTEM_PROMPT, userPrompt].join("\n\n")),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Gemini API timeout")), 8000))
+        ]);
+        text = result.response.text();
+      } else {
+        const response = await Promise.race([
+          this.anthropic!.messages.create({
+            model: "claude-sonnet-4-6",
+            max_tokens: 1000,
+            system: SYSTEM_PROMPT,
+            messages: [{ role: "user", content: userPrompt }],
+          }),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error("Anthropic API timeout")), 8000))
+        ]);
 
-      const raw = response.content[0];
-      if (raw.type !== "text") {
-        throw new Error("Agent returned non-text response");
+        const raw = response.content[0];
+        if (raw.type !== "text") {
+          throw new Error("Agent returned non-text response");
+        }
+        text = raw.text;
       }
-      text = raw.text;
+
+      const decision = parseDecisionText(text);
+      this.decisionHistory.push(decision);
+
+      console.log(
+        `[agent] 🧠 Decision made: ${decision.diagnosis.slice(0, 60)}...`
+      );
+      console.log(
+        `[agent]    action: ${decision.recommendedActions[0] ?? "NONE"}, tip: ${decision.newTipLamports} lamports, confidence: ${decision.confidenceScore}`
+      );
+
+      return decision;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[agent] ⚠️ AI API call failed (${msg}); using deterministic rule-based fallback`);
+
+      let diagnosis = "Fallback: Network or transmission issues";
+      let recommendedActions: AgentAction[] = [AgentAction.RESUBMIT];
+      let newTipLamports = context.previousTipLamports;
+      let shouldRefreshBlockhash = true;
+      let shouldAbandon = false;
+      const confidenceScore = 0.85;
+      let reasoningChain = `Local rule-based fallback triggered due to API error: ${msg}.`;
+
+      if (context.failureCode === "FEE_TOO_LOW") {
+        diagnosis = "Fallback: Congestion / insufficient transaction fee";
+        recommendedActions = [AgentAction.INCREASE_TIP];
+        newTipLamports = Math.floor(context.previousTipLamports * 1.5);
+        shouldRefreshBlockhash = false;
+        reasoningChain += " Classified fee too low. Increasing tip by 50% to improve inclusion chance.";
+      } else if (context.failureCode === "BLOCKHASH_EXPIRED") {
+        diagnosis = "Fallback: Transaction blockhash expired";
+        recommendedActions = [AgentAction.REFRESH_BLOCKHASH];
+        shouldRefreshBlockhash = true;
+        reasoningChain += " Classified blockhash expired. Refreshing blockhash to retry.";
+      } else if (context.failureCode === "BUNDLE_DROPPED") {
+        diagnosis = "Fallback: Jito block engine bundle dropped or timed out";
+        recommendedActions = [AgentAction.RESUBMIT];
+        newTipLamports = context.previousTipLamports + 10000;
+        shouldRefreshBlockhash = true;
+        reasoningChain += " Classified bundle dropped. Resubmitting with a minor tip bump.";
+      } else {
+        diagnosis = `Fallback: Unhandled failure (${context.failureCode})`;
+        recommendedActions = [AgentAction.ABANDON];
+        shouldAbandon = true;
+        reasoningChain += " Unrecognized error type. Abandoning transaction.";
+      }
+
+      const decision: AgentDecision = {
+        diagnosis,
+        recommendedActions,
+        newTipLamports,
+        shouldRefreshBlockhash,
+        shouldAbandon,
+        confidenceScore,
+        reasoningChain,
+        decidedAt: Date.now(),
+      };
+
+      this.decisionHistory.push(decision);
+      return decision;
     }
-
-    const decision = parseDecisionText(text);
-    this.decisionHistory.push(decision);
-
-    console.log(
-      `[agent] 🧠 Decision made: ${decision.diagnosis.slice(0, 60)}...`
-    );
-    console.log(
-      `[agent]    action: ${decision.recommendedActions[0] ?? "NONE"}, tip: ${decision.newTipLamports} lamports, confidence: ${decision.confidenceScore}`
-    );
-
-    return decision;
   }
 
   getDecisionHistory(): AgentDecision[] {

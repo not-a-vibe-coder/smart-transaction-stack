@@ -33,8 +33,5 @@
     "eslint": "latest",
     "ts-node": "latest",
     "typescript": "latest"
-  },
-  "optionalDependencies": {
-    "@triton-one/yellowstone-grpc-napi-win32-x64-msvc": "npm:null@*"
   }
 }
