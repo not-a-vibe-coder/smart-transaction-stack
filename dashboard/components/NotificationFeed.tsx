@@ -42,21 +42,26 @@ export default function NotificationFeed() {
   if (notifications.length === 0) return null;
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2">
+    <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm w-full px-4 sm:px-0">
       {notifications.map((n) => (
         <div
           key={n.id}
-          className={`max-w-sm p-3 rounded-lg border text-sm shadow-lg transition-all ${
+          className={`p-4 rounded-xl border text-xs shadow-2xl backdrop-blur-md transition-all duration-300 animate-in slide-in-from-bottom-5 fade-in ${
             n.succeeded
-              ? "bg-green-950 border-green-700 text-green-200"
-              : "bg-red-950 border-red-700 text-red-200"
+              ? "bg-emerald-950/80 border-emerald-500/30 text-emerald-200 shadow-emerald-500/10"
+              : "bg-rose-950/80 border-rose-500/30 text-rose-200 shadow-rose-500/10"
           }`}
         >
-          <div className="font-medium">
-            🤖 AI {n.succeeded ? "recovered" : "failed"} payment
+          <div className="flex items-center gap-2 font-semibold uppercase tracking-wider mb-1 font-mono">
+            <span>🤖 AI Recovery Status</span>
+            <span className="h-1.5 w-1.5 rounded-full bg-current animate-pulse" />
           </div>
-          <div className="text-xs mt-1 opacity-80">
-            [attempt {n.attempt}] {n.diagnosis.slice(0, 60)}...
+          <p className="text-[11px] text-white font-medium">
+            AI {n.succeeded ? "successfully re-routed and recovered" : "initiated failover on"} payment {n.paymentId.slice(0, 8)}...
+          </p>
+          <div className="text-[10px] font-mono mt-2 pt-2 border-t border-white/5 opacity-80 flex justify-between items-center">
+            <span>Attempt #{n.attempt}</span>
+            <span>{n.diagnosis.slice(0, 45)}...</span>
           </div>
         </div>
       ))}

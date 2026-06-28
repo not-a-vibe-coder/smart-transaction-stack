@@ -60,24 +60,33 @@ export class WsServer {
       });
     });
 
-    // Wire dispatcher events to broadcast
-    this.dispatcher.on("paymentQueued", (payment) => {
-      this.broadcast("payment:update", {
-        ...payment,
-        status: "QUEUED",
-      });
-    });
+    // Wire lifecycle tracker status transitions to WebSocket broadcast
+    this.dispatcher.config.tracker.on("statusChange", (paymentId, status, event) => {
+      const payment = this.store.getPayment(paymentId);
+      if (payment) {
+        const submissions = this.store.getBundleSubmissions(paymentId);
+        const decisions = this.store.getAgentDecisions(paymentId);
 
-    this.dispatcher.on("paymentFinalized", (receipt) => {
-      this.broadcast("payment:update", receipt);
-    });
-
-    this.dispatcher.on("paymentFailed", (paymentId, reason) => {
-      this.broadcast("payment:update", {
-        paymentId,
-        status: "FAILED",
-        reason,
-      });
+        this.broadcast("payment:update", {
+          paymentId,
+          status,
+          amountUsdc: payment.amountLamports / 1_000_000,
+          recipientPubkey: payment.recipientPubkey,
+          memo: payment.memo,
+          tokenMint: payment.tokenMint,
+          attempts: submissions.length || 1,
+          agentInvoked: decisions.length > 0,
+          submittedSlot: submissions[submissions.length - 1]?.submittedSlot,
+          finalizedSlot: status === "FINALIZED" ? event.slot : undefined,
+          updatedAt: Date.now(),
+        });
+      } else {
+        this.broadcast("payment:update", {
+          paymentId,
+          status,
+          updatedAt: Date.now(),
+        });
+      }
     });
 
     this.dispatcher.on("bundleSubmitted", (submission) => {

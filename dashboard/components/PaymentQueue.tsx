@@ -23,24 +23,14 @@ const STATUS_STAGES: PaymentStatus[] = [
   "QUEUED", "SUBMITTED", "PROCESSED", "CONFIRMED", "FINALIZED",
 ];
 
-const STATUS_COLOR: Record<PaymentStatus, string> = {
-  QUEUED: "bg-gray-600 text-gray-100",
-  SUBMITTED: "bg-blue-600 text-white",
-  PROCESSED: "bg-yellow-500 text-black",
-  CONFIRMED: "bg-orange-500 text-white",
-  FINALIZED: "bg-green-600 text-white",
-  FAILED: "bg-red-600 text-white",
-  ABANDONED: "bg-red-900 text-red-200",
-};
-
-const DOT_COLOR: Record<PaymentStatus, string> = {
-  QUEUED: "bg-gray-500",
-  SUBMITTED: "bg-blue-500",
-  PROCESSED: "bg-yellow-400",
-  CONFIRMED: "bg-orange-400",
-  FINALIZED: "bg-green-500",
-  FAILED: "bg-red-500",
-  ABANDONED: "bg-red-900",
+const STATUS_STYLE: Record<PaymentStatus, { bg: string; text: string; dot: string; glow: string }> = {
+  QUEUED: { bg: "bg-gray-500/10 border-gray-500/20", text: "text-gray-400", dot: "bg-gray-400", glow: "shadow-gray-400/20" },
+  SUBMITTED: { bg: "bg-blue-500/10 border-blue-500/20", text: "text-blue-400", dot: "bg-blue-500", glow: "shadow-blue-500/20" },
+  PROCESSED: { bg: "bg-yellow-500/10 border-yellow-500/20", text: "text-yellow-400", dot: "bg-yellow-500", glow: "shadow-yellow-500/20" },
+  CONFIRMED: { bg: "bg-orange-500/10 border-orange-500/20", text: "text-orange-400", dot: "bg-orange-500", glow: "shadow-orange-500/20" },
+  FINALIZED: { bg: "bg-emerald-500/10 border-emerald-500/20", text: "text-emerald-400", dot: "bg-emerald-400", glow: "shadow-emerald-400/20" },
+  FAILED: { bg: "bg-red-500/10 border-red-500/20", text: "text-red-400", dot: "bg-red-500", glow: "shadow-red-500/20" },
+  ABANDONED: { bg: "bg-red-950/20 border-red-950/30", text: "text-red-600", dot: "bg-red-900", glow: "shadow-red-900/10" },
 };
 
 function isActive(status: PaymentStatus): boolean {
@@ -96,9 +86,11 @@ export default function PaymentQueue() {
           ...existing,
           status: (payload.status as PaymentStatus) ?? existing.status,
           amountUsdc:
-            payload.amountLamports
+            payload.amountUsdc !== undefined
+              ? Number(payload.amountUsdc)
+              : payload.amountLamports
               ? Number(payload.amountLamports) / 1e6
-              : payload.amountUsdc as number ?? existing.amountUsdc,
+              : existing.amountUsdc,
           recipientPubkey:
             String(payload.recipientPubkey ?? existing.recipientPubkey),
           memo: (payload.memo as string | undefined) ?? existing.memo,
@@ -124,18 +116,22 @@ export default function PaymentQueue() {
   }).slice(0, 10);
 
   return (
-    <div>
-      <div className="flex items-center gap-2 mb-4">
-        <h2 className="text-sm font-semibold text-gray-200 uppercase tracking-wider">
-          Payment Queue
-        </h2>
-        <span className="text-xs bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">
-          {payments.size}
-        </span>
+    <div className="space-y-4">
+      <div className="flex items-center justify-between border-b border-white/5 pb-2">
+        <div className="flex items-center gap-2">
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-widest">
+            Payment Queue
+          </h2>
+          <span className="text-[10px] bg-white/5 text-gray-300 font-mono px-2 py-0.5 rounded-full border border-white/5">
+            {payments.size} Total
+          </span>
+        </div>
       </div>
 
       {sorted.length === 0 ? (
-        <p className="text-gray-600 text-sm">No payments yet — dispatch one via POST /dispatch</p>
+        <div className="glass-card p-8 text-center text-gray-500 text-sm">
+          No payments yet — dispatch one via POST /dispatch
+        </div>
       ) : (
         <div className="space-y-3">
           {sorted.map((p) => (
@@ -147,7 +143,7 @@ export default function PaymentQueue() {
       {payments.size > 10 && (
         <Link
           href="/payments"
-          className="block mt-3 text-xs text-blue-400 hover:text-blue-300"
+          className="block text-center text-xs text-blue-400 hover:text-blue-300 transition-colors py-2 border border-white/5 rounded-lg hover:bg-white/5"
         >
           View all {payments.size} payments →
         </Link>
@@ -157,60 +153,90 @@ export default function PaymentQueue() {
 }
 
 function PaymentCard({ card }: { card: PaymentCardData }) {
+  const style = STATUS_STYLE[card.status] ?? STATUS_STYLE.QUEUED;
   const stageIdx = STATUS_STAGES.indexOf(card.status);
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-lg p-3">
+    <div className="glass-card glass-card-hover p-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
       {/* Top row */}
       <div className="flex items-center justify-between mb-2">
-        <span className="text-green-400 font-semibold text-sm">
-          {card.amountUsdc.toFixed(2)} USDC
+        <span className="text-white font-semibold tracking-tight text-base glow-text-blue">
+          {card.amountUsdc.toFixed(2)} <span className="text-xs text-blue-400 font-normal">USDC</span>
         </span>
         <span
-          className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLOR[card.status] ?? "bg-gray-700 text-white"}`}
+          className={`text-[10px] uppercase font-mono tracking-widest px-2 py-0.5 rounded-full border ${style.bg} ${style.text}`}
         >
           {card.status}
         </span>
       </div>
 
       {/* Middle row */}
-      <div className="text-xs text-gray-400 mb-3">
-        <span>To: {card.recipientPubkey.slice(0, 8)}...</span>
+      <div className="text-xs text-gray-400 mb-4 flex flex-col gap-1">
+        <div className="flex items-center justify-between">
+          <span className="font-mono text-gray-500">To: {card.recipientPubkey.slice(0, 12)}...{card.recipientPubkey.slice(-4)}</span>
+        </div>
         {card.memo && (
-          <span className="ml-2 italic text-gray-500">{card.memo}</span>
+          <span className="italic text-gray-500 border-l border-white/10 pl-2 mt-1">{card.memo}</span>
         )}
       </div>
 
-      {/* Timeline dots */}
-      <div className="flex items-center gap-1 mb-2">
-        {STATUS_STAGES.map((stage, idx) => {
-          const filled = idx <= stageIdx;
-          return (
-            <div key={stage} className="flex items-center gap-1">
-              <div
-                className={`w-2.5 h-2.5 rounded-full border ${
-                  filled
-                    ? `${DOT_COLOR[card.status] ?? "bg-green-500"} border-transparent`
-                    : "border-gray-700 bg-transparent"
-                }`}
-              />
-              {idx < STATUS_STAGES.length - 1 && (
-                <div
-                  className={`h-px w-4 ${filled && idx < stageIdx ? "bg-gray-500" : "bg-gray-800"}`}
-                />
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {/* Timeline progress line */}
+      {card.status !== "FAILED" && card.status !== "ABANDONED" && (
+        <div className="mb-4">
+          <div className="flex items-center justify-between text-[9px] text-gray-500 font-mono uppercase tracking-wider mb-2">
+            <span>Queued</span>
+            <span>Submitted</span>
+            <span>Processed</span>
+            <span>Confirmed</span>
+            <span>Finalized</span>
+          </div>
+          <div className="relative flex items-center justify-between">
+            {/* Background line */}
+            <div className="absolute left-0 right-0 h-[2px] bg-white/5 z-0" />
+            
+            {/* Active filled line */}
+            <div 
+              className="absolute left-0 h-[2px] bg-gradient-to-r from-blue-500 to-emerald-400 z-0 transition-all duration-500" 
+              style={{ width: `${(stageIdx / (STATUS_STAGES.length - 1)) * 100}%` }}
+            />
 
-      {/* Footer */}
+            {STATUS_STAGES.map((stage, idx) => {
+              const filled = idx <= stageIdx;
+              const active = idx === stageIdx;
+              
+              return (
+                <div key={stage} className="relative z-10">
+                  <div
+                    className={`w-3 h-3 rounded-full transition-all duration-300 flex items-center justify-center ${
+                      filled
+                        ? `bg-emerald-400 shadow-md ${style.glow}` 
+                        : "bg-[#0d0d11] border border-white/10"
+                    } ${active ? "ring-4 ring-emerald-400/20 scale-125" : ""}`}
+                  >
+                    {filled && (
+                      <div className="w-1 h-1 bg-[#020204] rounded-full" />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Footer / Performance Stats */}
       {card.status === "FINALIZED" && (
-        <div className="flex items-center gap-2 text-xs text-gray-500">
-          <span>⚡ {card.latencyMs ?? 0}ms · {card.attempts} attempt(s)</span>
+        <div className="flex items-center justify-between text-[10px] border-t border-white/5 pt-3 mt-1">
+          <div className="flex items-center gap-3 text-gray-500 font-mono">
+            <span>Slot: {card.finalizedSlot ?? "unknown"}</span>
+            <span>•</span>
+            <span>Latency: <span className="text-gray-300 font-semibold">{card.latencyMs ?? 0}ms</span></span>
+            <span>•</span>
+            <span>Attempts: <span className="text-gray-300 font-semibold">{card.attempts}</span></span>
+          </div>
           {card.agentInvoked && (
-            <span className="bg-purple-900 text-purple-300 px-1.5 py-0.5 rounded">
-              🤖 AI recovered
+            <span className="bg-purple-500/10 text-purple-400 border border-purple-500/20 text-[9px] uppercase tracking-widest font-mono px-2 py-0.5 rounded-full">
+              🤖 AI RECOVERED
             </span>
           )}
         </div>
