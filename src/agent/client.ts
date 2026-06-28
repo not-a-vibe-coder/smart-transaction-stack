@@ -107,9 +107,16 @@ export class AgentClient {
       const msg = err instanceof Error ? err.message : String(err);
       console.warn(`[agent] ⚠️ AI API call failed (${msg}); using deterministic rule-based fallback`);
 
+      let diagnosis = "Fallback: Network or transmission issues";
+      let recommendedActions: AgentAction[] = [AgentAction.RESUBMIT];
+      let newTipLamports = context.previousTipLamports;
+      let shouldRefreshBlockhash = true;
+      let shouldAbandon = false;
+      const confidenceScore = 0.85;
+
       let reasoningChain = `[AI Operations Guardian]
 Analyzing transaction failure: ${context.failureCode}
-Attempt ${context.attempt} on signature: ${context.failedSignature.slice(0, 12)}...
+Attempt ${context.attempt} on payment ID: ${context.paymentId.slice(0, 12)}...
 
 [Step 1: Failure Classification]
 - Detected failure code: ${context.failureCode}

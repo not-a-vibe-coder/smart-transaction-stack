@@ -572,27 +572,35 @@ export class LifecycleStore {
     return this.paymentReceiptFromRow(row);
   }
 
-  getAllPayments(limit = 50): PaymentRequest[] {
+  getAllPayments(limit = 50): Array<PaymentRequest & { status: string; attempts: number; agentInvoked: boolean }> {
     const rows = this.db
       .prepare(
         `
           SELECT
-            id,
-            sender_pubkey,
-            recipient_pubkey,
-            amount_lamports,
-            token_mint,
-            memo,
-            created_at,
-            inject_fault
-          FROM payments
-          ORDER BY created_at DESC
+            p.id,
+            p.sender_pubkey,
+            p.recipient_pubkey,
+            p.amount_lamports,
+            p.token_mint,
+            p.memo,
+            p.status,
+            p.created_at,
+            p.inject_fault,
+            (SELECT COUNT(*) FROM bundle_submissions b WHERE b.payment_id = p.id) as attempts,
+            (SELECT COUNT(*) FROM agent_decisions a WHERE a.payment_id = p.id) as decisions_count
+          FROM payments p
+          ORDER BY p.created_at DESC
           LIMIT ?
         `
       )
       .all(Math.max(0, Math.floor(limit))) as SqliteRow[];
 
-    return rows.map((row) => this.paymentFromRow(row));
+    return rows.map((row) => ({
+      ...this.paymentFromRow(row),
+      status: toStringValue(row.status),
+      attempts: toNumberValue(row.attempts) || 1,
+      agentInvoked: (toNumberValue(row.decisions_count) || 0) > 0,
+    }));
   }
 
   private paymentFromRow(row: SqliteRow): PaymentRequest {
