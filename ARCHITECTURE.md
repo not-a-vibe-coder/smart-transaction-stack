@@ -2,27 +2,39 @@
 
 ## Overview
 
-```
-┌─────────────────────────────────────────────────────┐
-│           User / Next.js Dashboard                  │
-│    (payment queue · AI panel · slot monitor)        │
-└──────────────────────────┬──────────────────────────┘
-                           │ WebSocket + REST
-┌──────────────────────────▼──────────────────────────┐
-│              PayDispatcher Orchestrator              │
-│            src/dispatcher.ts (Phase 24)             │
-└──────┬────────────────────────────────┬─────────────┘
-       │                                │
-┌──────▼──────────┐         ┌──────────▼──────────────┐
-│  Geyser Stream  │         │    Jito Bundle Engine    │
-│  Yellowstone    │         │    REST API (devnet)     │
-│  gRPC           │         └──────────┬───────────────┘
-└──────┬──────────┘                    │
-       │ slot/tx events                │ bundle submission
-┌──────▼──────────────────────────────▼───────────────┐
-│             Solana Validator Network                 │
-│         (devnet / mainnet-beta)                     │
-└─────────────────────────────────────────────────────┘
+```mermaid
+graph TD
+    User([User / Dashboard]) -->|POST /dispatch| Orchestrator[PayDispatcher Orchestrator]
+    
+    subgraph Core Stack [Smart Transaction Stack]
+        Orchestrator --> Geyser[Geyser Stream Layer]
+        Orchestrator --> BundleBuilder[Bundle Builder Layer]
+        Orchestrator --> DB[(SQLite Database)]
+        
+        Geyser --> SlotSub[Slot Subscriber]
+        Geyser --> LeaderDet[Leader Detector]
+        Geyser --> HealthMon[Network Health Monitor]
+        Geyser --> ConfList[Confirmation Listener]
+        
+        BundleBuilder --> TipFetcher[Jito Tip Fetcher]
+        BundleBuilder --> TipCalc[Dynamic Tip Calculator]
+        BundleBuilder --> TxBuilder[Instruction Builder]
+        BundleBuilder --> Submitter[Bundle Submitter]
+    end
+
+    subgraph External Infrastructure [Solana & Jito Infrastructure]
+        SlotSub -->|Yellowstone gRPC| Devnet[Solana Devnet / RPC]
+        Submitter -->|JSON-RPC sendBundle| Jito[Jito Block Engine]
+        TipFetcher -->|REST API| Jito
+    end
+
+    subgraph AI Operations [AI Recovery Layer]
+        Orchestrator -->|On Failure| Classifier[Failure Classifier]
+        Classifier -->|Structured Error Code| Executor[Retry Executor]
+        Executor -->|Gemini/Claude Agent API| Agent[AI Agent Client]
+        Agent -->|Structured Decision| Executor
+        Executor -->|Refresh Blockhash / Increase Tip| BundleBuilder
+    end
 ```
 
 ---
