@@ -34,7 +34,8 @@ export type WsEventType =
   | "network:health"
   | "bundle:submitted"
   | "bundle:failed"
-  | "notification:retry";
+  | "notification:retry"
+  | "batch:started";
 
 export interface WsEvent<T = unknown> {
   type: WsEventType;

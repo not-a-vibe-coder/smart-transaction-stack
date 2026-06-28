@@ -16,8 +16,6 @@ dashboard/out/
 
 # Logs & runtime data
 logs/*.db
-logs/receipts/
-logs/bundles/
 *.log
 
 # SQLite WAL files

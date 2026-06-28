@@ -44,14 +44,15 @@ export class FaultInjector {
   }
 
   shouldInjectForPayment(payment: PaymentRequest): boolean {
-    if (this.faultType === FaultType.NONE) return false;
-    if (this.hasInjected) return false;
-    // Only inject for the very first payment
+    // If payment carries its own injectFault flag, always honour it (batch mode)
     if (payment.injectFault && payment.injectFault !== FaultType.NONE) {
-      this.hasInjected = true;
       return true;
     }
-    return false;
+    // Legacy: global env-based single injection
+    if (this.faultType === FaultType.NONE) return false;
+    if (this.hasInjected) return false;
+    this.hasInjected = true;
+    return true;
   }
 
   simulateLeaderSkip(): boolean {

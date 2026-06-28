@@ -155,6 +155,75 @@ export class WsServer {
       }
     });
 
+    // Batch dispatch: 12 payments, 2 with intentional fault injection for AI recovery demo
+    this.app.post("/dispatch-batch", async (req, res) => {
+      try {
+        const { recipient, baseAmount, memo, tokenMint } = req.body as {
+          recipient: string;
+          baseAmount?: number;
+          memo?: string;
+          tokenMint?: string;
+        };
+
+        if (!recipient) {
+          res.status(400).json({ error: "recipient is required" });
+          return;
+        }
+
+        const TOTAL = 12;
+        // Indices that will have faults injected (0-based)
+        const FAULT_INDICES = new Set([3, 8]);
+        const base = baseAmount ?? 10; // default 10 USDC per payment
+
+        const paymentIds: string[] = [];
+        const errors: string[] = [];
+
+        this.broadcast("batch:started", {
+          total: TOTAL,
+          faultCount: FAULT_INDICES.size,
+          timestamp: Date.now(),
+        });
+
+        for (let i = 0; i < TOTAL; i++) {
+          try {
+            const isFaulty = FAULT_INDICES.has(i);
+            const amount = Math.floor((base + i) * 1_000_000); // vary amounts slightly
+            const paymentMemo = isFaulty
+              ? `[AI Recovery Test] Payment ${i + 1} of ${TOTAL}`
+              : `Payment ${i + 1} of ${TOTAL}${memo ? ` — ${memo}` : ""}`;
+
+            // For faulty payments, set injectFault on the request
+            const payment = await this.dispatcher.queuePayment({
+              recipient,
+              amount,
+              memo: paymentMemo,
+              tokenMint,
+              _injectFault: isFaulty ? "blockhash" : undefined,
+            });
+            paymentIds.push(payment.id);
+
+            // Small stagger to avoid overwhelming RPC
+            await new Promise((r) => setTimeout(r, 300));
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err);
+            errors.push(`Payment ${i + 1}: ${msg}`);
+          }
+        }
+
+        res.json({
+          success: true,
+          total: TOTAL,
+          queued: paymentIds.length,
+          faultCount: FAULT_INDICES.size,
+          paymentIds,
+          errors: errors.length ? errors : undefined,
+        });
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        res.status(500).json({ error: msg });
+      }
+    });
+
     this.httpServer.listen(this.port, () => {
       console.log(`[ws] ✅ Server listening on port ${this.port}`);
     });

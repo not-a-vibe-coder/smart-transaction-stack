@@ -142,10 +142,16 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
     amount: number;
     memo?: string;
     tokenMint?: string;
+    _injectFault?: string;
   }): Promise<PaymentRequest> {
     const { tracker, faultInjector } = this.config;
 
     const faultFromEnv = (process.env.INJECT_FAULT ?? "none") as FaultType;
+    // Per-payment fault override takes priority over global env
+    const perPaymentFault = request._injectFault as FaultType | undefined;
+    const resolvedFault = (perPaymentFault && Object.values(FaultType).includes(perPaymentFault))
+      ? perPaymentFault
+      : faultFromEnv;
 
     const payment: PaymentRequest = {
       id: randomUUID(),
@@ -154,12 +160,13 @@ export class PayDispatcher extends EventEmitter<DispatcherEvents> {
       amountLamports: request.amount,
       tokenMint:
         request.tokenMint ??
+        process.env.USDC_MINT ??
         (process.env.SOLANA_NETWORK === "mainnet-beta"
           ? "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"  // mainnet USDC
           : "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU"), // devnet/testnet test USDC
       memo: request.memo,
       createdAt: Date.now(),
-      injectFault: faultFromEnv !== FaultType.NONE ? faultFromEnv : undefined,
+      injectFault: resolvedFault !== FaultType.NONE ? resolvedFault : undefined,
     };
 
     // Validate recipient

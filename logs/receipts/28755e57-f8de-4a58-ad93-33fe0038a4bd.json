@@ -1,0 +1,17 @@
+{
+  "paymentId": "28755e57-f8de-4a58-ad93-33fe0038a4bd",
+  "status": "FINALIZED",
+  "senderPubkey": "53owyhFdxjkvJRZL9weMgLfYGhjoRgDLrLhB63Khiooa",
+  "recipientPubkey": "53owyhFdxjkvJRZL9weMgLfYGhjoRgDLrLhB63Khiooa",
+  "amountLamports": 18000000,
+  "tokenMint": "UoUjv9LxZ9ihssyExj3vx4EfFHZSYo1AFXQXiYpUxmT",
+  "memo": "[AI Recovery Test] Payment 9 of 12",
+  "finalSignature": "2TtxTG5NZeyfMu2yERceMzjA5MroNnmkHVbkfTQ55mE6nFkdXTVHXWGqm9PKxCazJJQQpc1YcoDPS3pqGtkitYuz",
+  "tipPaidLamports": 50000,
+  "submittedSlot": 472576864,
+  "finalizedSlot": 472577033,
+  "totalLatencyMs": 78716,
+  "attempts": 2,
+  "agentInvoked": true,
+  "generatedAt": 1782659246299
+}

@@ -209,7 +209,8 @@ export type WsEventType =
   | "network:health"
   | "bundle:submitted"
   | "bundle:failed"
-  | "notification:retry";
+  | "notification:retry"
+  | "batch:started";
 
 /** Envelope wrapping any payload broadcast to dashboard WebSocket clients. */
 export interface WsEvent<T = unknown> {

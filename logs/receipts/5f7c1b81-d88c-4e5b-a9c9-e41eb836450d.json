@@ -1,0 +1,17 @@
+{
+  "paymentId": "5f7c1b81-d88c-4e5b-a9c9-e41eb836450d",
+  "status": "FINALIZED",
+  "senderPubkey": "53owyhFdxjkvJRZL9weMgLfYGhjoRgDLrLhB63Khiooa",
+  "recipientPubkey": "53owyhFdxjkvJRZL9weMgLfYGhjoRgDLrLhB63Khiooa",
+  "amountLamports": 1000000000,
+  "tokenMint": "6ewNP5Dh79SsXQbcXyv7rfBcZGXo9Xi4C3xvRQtAom7",
+  "memo": "Batch payment 4 validation",
+  "finalSignature": "2yHjekyPfXTqWXzgM64JeuyUS44TkLQ9ERzaSPzF5fCyPdcQWi3i6Z4qYubeo81LjXYNA3FeMzJ7EA8Fxz3E6evx",
+  "tipPaidLamports": 55000,
+  "submittedSlot": 472527834,
+  "finalizedSlot": 472527837,
+  "totalLatencyMs": 15068,
+  "attempts": 1,
+  "agentInvoked": false,
+  "generatedAt": 1782640629789
+}

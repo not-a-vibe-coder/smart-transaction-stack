@@ -1,0 +1,15 @@
+{
+  "bundleId": "a61950aa1a3dc98f9d4df844bb76e052a817e7c65cd2c23c9ec96144f9e96e4d",
+  "paymentId": "e6585728-ef04-4c46-884d-df6d571930bb",
+  "signatures": [
+    "4wrqnZbrmV7nxPxjMUgYRVvpPRDehjDhkW9Q4W7DGuh5JkDhQ8pNxHoiPekwP4RxPRaeDKWjdd249pzdZkJG3rVs",
+    "3VE4L2ExSduDy6bqKndEEr8xEJpbvvFFo8CPwk9oKxg1i8UnyetkowSEDL1CNF5jLedvL3utLSpHwJaLU7TKG9vs"
+  ],
+  "tipLamports": 55000,
+  "tipAccount": "BkMx5bRzQeP6tUZgzEs3xeDWJfQiLYvNDqSgmGZKYJDq",
+  "submittedSlot": 472527829,
+  "submittedAt": 1782640625279,
+  "blockhash": "7xR8LNqevwhbimMudMxkL5hUuGgJsFZ9iTTwByMevUxj",
+  "lastValidBlockHeight": 460370668,
+  "attempt": 1
+}
